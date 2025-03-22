@@ -15,6 +15,7 @@ from httpx import HTTPError
 from pqdm.threads import pqdm
 from pydantic import BaseModel
 from tqdm.auto import tqdm
+
 from .types import Product
 
 
@@ -201,17 +202,13 @@ class BlackMarbleDownloader(BaseModel):
             List of downloaded H5 filenames.
         """
         # Convert to EPSG:4326 and intersect with self.TILES
-        gdf = geopandas.overlay(
-            gdf.to_crs("EPSG:4326").dissolve(), self.TILES, how="intersection"
-        )
+        gdf = geopandas.overlay(gdf.to_crs("EPSG:4326").dissolve(), self.TILES, how="intersection")
 
         # Fetch manifest data asynchronously
         bm_files_df = asyncio.run(self.get_manifest(gdf, product_id, date_range))
 
         # Filter files to those intersecting with Black Marble tiles
-        bm_files_df = bm_files_df[
-            bm_files_df["name"].str.contains("|".join(gdf["TileID"]))
-        ]
+        bm_files_df = bm_files_df[bm_files_df["name"].str.contains("|".join(gdf["TileID"]))]
 
         # Prepare arguments for parallel download
         names = bm_files_df["fileURL"].tolist()
@@ -222,4 +219,5 @@ class BlackMarbleDownloader(BaseModel):
             n_jobs=4,  # os.cpu_count(),
             argument_type="args",
             desc="Downloading...",
+            exception_behaviour="immediate",
         )

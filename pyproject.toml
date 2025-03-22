@@ -10,45 +10,45 @@ license = { file = "LICENSE" }
 keywords = ["nighttime lights", "nasa black marble", "world bank"]
 authors = [{ name = "World Bank", email = "github@worldbank.org" }]
 maintainers = [
-	{ name = "Gabriel Stefanini Vicente", email = "gvicente@worldbank.org" },
-	{ name = "Robert Marty", email = "rmarty@worldbank.org" },
+    { name = "Gabriel Stefanini Vicente", email = "gvicente@worldbank.org" },
+    { name = "Robert Marty", email = "rmarty@worldbank.org" },
 ]
 classifiers = [
-	"Programming Language :: Python :: 3",
-	"Programming Language :: Python :: 3.10",
-	"Programming Language :: Python :: 3.11",
-	"Programming Language :: Python :: 3.12",
-	"Programming Language :: Python :: 3 :: Only",
-	"Development Status :: 3 - Alpha",
-	"Intended Audience :: Science/Research",
-	"Topic :: Scientific/Engineering",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
 ]
 requires-python = ">=3.10"
 dependencies = [
-	"backoff>=2,<3",
-	"geopandas<2",
-	"h5py",
-	"httpx",
-	"ipywidgets<9",
-	"nest_asyncio<2",
-	"numpy",
-	"pandas>=2,<3",
-	"pqdm",
-	"pydantic>2,<3",
-	"rasterio",
-	"rasterstats",
-	"rioxarray",
-	"tqdm",
-	"xarray",
-	"aiohttp",
+    "backoff>=2,<3",
+    "geopandas<2",
+    "h5py",
+    "httpx",
+    "ipywidgets<9",
+    "nest_asyncio<2",
+    "numpy",
+    "pandas>=2,<3",
+    "pqdm",
+    "pydantic>2,<3",
+    "rasterio",
+    "rasterstats",
+    "rioxarray==0.17.0",
+    "tqdm",
+    "xarray",
+    "aiohttp",
 ]
 dynamic = ["version"]
 
 [project.optional-dependencies]
 docs = [
-	"docutils==0.17.1",               # https://jupyterbook.org/en/stable/content/citations.html?highlight=docutils#citations-and-bibliographies
-	"jupyter-book>=0.15.1",
-	"sphinxcontrib-apidoc>=0.4.0,<1",
+    "docutils==0.17.1",               # https://jupyterbook.org/en/stable/content/citations.html?highlight=docutils#citations-and-bibliographies
+    "jupyter-book>=0.15.1",
+    "sphinxcontrib-apidoc>=0.4.0,<1",
 ]
 tests = ["pytest"]
 
