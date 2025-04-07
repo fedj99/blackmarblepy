@@ -8,6 +8,7 @@ from typing import ClassVar, List
 
 import backoff
 import geopandas
+import h5py
 import httpx
 import nest_asyncio
 import pandas as pd
@@ -17,6 +18,14 @@ from pydantic import BaseModel
 from tqdm.auto import tqdm
 
 from .types import Product
+
+
+def is_valid_hdf5(filename: str | Path):
+    try:
+        with h5py.File(filename, "r") as f:
+            return True
+    except (IOError, OSError) as e:
+        return False
 
 
 def chunks(ls, n):
@@ -152,13 +161,18 @@ class BlackMarbleDownloader(BaseModel):
         url = f"{self.URL}{name}"
         name = name.split("/")[-1]
 
-        if not (filename := Path(self.directory, name)).exists() or not skip_if_exists:
+        filename = Path(self.directory, name)
+        file_valid = filename.exists() and is_valid_hdf5(filename)
+
+        if not skip_if_exists or not file_valid:
             with open(filename, "wb+") as f:
                 with httpx.stream(
                     "GET",
                     url,
                     headers={"Authorization": f"Bearer {self.bearer}"},
                 ) as response:
+                    if response.is_error:
+                        raise HTTPError(str(response.content))
                     total = int(response.headers["Content-Length"])
                     with tqdm(
                         total=total,
