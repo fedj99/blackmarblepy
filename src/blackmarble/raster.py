@@ -178,7 +178,7 @@ def h5_to_geotiff(
         attrs = h5_data.attrs
         data_field_key = "HDFEOS/GRIDS/VNP_Grid_DNB/Data Fields"
 
-        if product_id in [Product.VNP46A1, Product.VNP46A2]:
+        if product_id == Product.VNP46A2:
             dataset = h5_data[data_field_key][variable]
             left, bottom, right, top = (
                 attrs.get("WestBoundingCoord"),
@@ -187,6 +187,14 @@ def h5_to_geotiff(
                 attrs.get("NorthBoundingCoord"),
             )
             qf = h5_data[data_field_key]["Mandatory_Quality_Flag"]
+        elif product_id == Product.VNP46A1:
+            dataset = h5_data[data_field_key][variable]
+            left, bottom, right, top = 90, 10, 100, 20  # TODO: Figure out how to set this properly
+            if match := re.match(r".*_(M\d\d)", variable):
+                qf_key = "QF_VIIRS_" + match.group(1)
+            else:
+                qf_key = "QF_DNB"
+            qf = h5_data[data_field_key][qf_key]
         else:
             data_field_key = "HDFEOS/GRIDS/VIIRS_Grid_DNB_2d/Data Fields"
             dataset = h5_data[data_field_key][variable]
@@ -196,9 +204,7 @@ def h5_to_geotiff(
 
             variable_short = re.sub("_Num|_Std", "", variable)
             qf_name = f"{variable_short}_Quality"
-            qf = h5_data[data_field_key].get(
-                qf_name, h5_data[data_field_key].get(variable)
-            )
+            qf = h5_data[data_field_key].get(qf_name, h5_data[data_field_key].get(variable))
 
         # Extract data and attributes
         scale_factor = dataset.attrs.get("scale_factor", 1)
@@ -213,9 +219,7 @@ def h5_to_geotiff(
 
         # Get geospatial metadata (coordinates and attributes)
         height, width = data.shape
-        transform = from_origin(
-            left, top, (right - left) / width, (top - bottom) / height
-        )
+        transform = from_origin(left, top, (right - left) / width, (top - bottom) / height)
 
         with rasterio.open(
             output_path,
@@ -342,9 +346,7 @@ def bm_raster(
     # Download and construct Dataset
     with output_directory if output_directory else tempfile.TemporaryDirectory() as d:
         downloader = BlackMarbleDownloader(bearer, d)
-        pathnames = downloader.download(
-            gdf, product_id, date_range, output_skip_if_exists
-        )
+        pathnames = downloader.download(gdf, product_id, date_range, output_skip_if_exists)
 
         datasets = []
         for date in tqdm(date_range, desc="COLLATING RESULTS | Processing..."):
@@ -364,9 +366,7 @@ def bm_raster(
                     for f in filenames
                 ]
                 ds = merge_arrays(da)
-                clipped_dataset = ds.rio.clip(
-                    gdf.geometry.apply(mapping), gdf.crs, drop=True
-                )
+                clipped_dataset = ds.rio.clip(gdf.geometry.apply(mapping), gdf.crs, drop=True)
                 clipped_dataset["time"] = pd.to_datetime(date)
 
                 datasets.append(clipped_dataset.squeeze())
