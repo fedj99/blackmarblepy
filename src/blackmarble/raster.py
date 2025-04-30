@@ -134,6 +134,15 @@ def _remove_fill_value(x, variable):
     return x
 
 
+def tile_no_to_bounds(h_tile_no: int, v_tile_no: int):
+    # TODO: Verify this is correct
+    west = (h_tile_no - 18) * 10
+    east = west + 10
+    north = (v_tile_no - 8) * 10
+    south = north + 10
+    return west, south, east, north
+
+
 def h5_to_geotiff(
     f: Path,
     /,
@@ -189,7 +198,10 @@ def h5_to_geotiff(
             qf = h5_data[data_field_key]["Mandatory_Quality_Flag"]
         elif product_id == Product.VNP46A1:
             dataset = h5_data[data_field_key][variable]
-            left, bottom, right, top = 90, 10, 100, 20  # TODO: Figure out how to set this properly
+            left, bottom, right, top = 90, 10, 100, 20
+            # left, bottom, right, top = tile_no_to_bounds(
+            #     attrs["HorizontalTileNumber"], attrs["VerticalTileNumber"]
+            # )  # TODO: Figure out how to set this properly
             if match := re.match(r".*_(M\d\d)", variable):
                 qf_key = "QF_VIIRS_" + match.group(1)
             else:
