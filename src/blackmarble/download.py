@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 from typing import ClassVar, List
+import os
 
 import backoff
 import geopandas
@@ -15,8 +16,8 @@ import pandas as pd
 from httpx import HTTPError
 from pqdm.threads import pqdm
 from pydantic import BaseModel
-from tqdm.auto import tqdm
 
+from .tqdm_callback import tqdm_callback, ProgressCallback
 from .types import Product
 
 
@@ -24,7 +25,7 @@ def is_valid_hdf5(filename: str | Path):
     try:
         with h5py.File(filename, "r") as f:
             return True
-    except (IOError, OSError) as e:
+    except (IOError, OSError):
         return False
 
 
@@ -79,6 +80,7 @@ class BlackMarbleDownloader(BaseModel):
         gdf: geopandas.GeoDataFrame,
         product_id: Product,
         date_range: datetime.date | List[datetime.date],
+        on_progress: ProgressCallback | None = None,
     ) -> pd.DataFrame:
         """Retrieve NASA Black Marble data manifest. i.d., download links.
 
@@ -121,10 +123,12 @@ class BlackMarbleDownloader(BaseModel):
 
             responses = [
                 await f
-                for f in tqdm(
+                for f in tqdm_callback(
                     asyncio.as_completed(tasks),
                     total=len(tasks),
                     desc="GETTING MANIFEST...",
+                    step_name="fetch_manifests",
+                    callback=on_progress,
                 )
             ]
 
@@ -145,6 +149,7 @@ class BlackMarbleDownloader(BaseModel):
         self,
         name: str,
         skip_if_exists: bool = True,
+        on_progress: ProgressCallback | None = None,
     ):
         """Download NASA Black Marble file
 
@@ -174,11 +179,13 @@ class BlackMarbleDownloader(BaseModel):
                     if response.is_error:
                         raise HTTPError(str(response.content))
                     total = int(response.headers["Content-Length"])
-                    with tqdm(
+                    with tqdm_callback(
                         total=total,
                         unit="B",
                         unit_scale=True,
                         leave=None,
+                        step_name="download",
+                        callback=on_progress,
                     ) as pbar:
                         pbar.set_description(f"Downloading {name}...")
                         for chunk in response.iter_raw():
@@ -192,6 +199,7 @@ class BlackMarbleDownloader(BaseModel):
         product_id: Product,
         date_range: List[datetime.date],
         skip_if_exists: bool = True,
+        on_progress: ProgressCallback | None = None,
     ):
         """
         Downloads files asynchronously from NASA Black Marble archive.
@@ -216,21 +224,25 @@ class BlackMarbleDownloader(BaseModel):
             List of downloaded H5 filenames.
         """
         # Convert to EPSG:4326 and intersect with self.TILES
-        gdf = geopandas.overlay(gdf.to_crs("EPSG:4326").dissolve(), self.TILES, how="intersection")
+        gdf = geopandas.overlay(
+            gdf.to_crs("EPSG:4326").dissolve(), self.TILES, how="intersection"
+        )
 
         # Fetch manifest data asynchronously
         bm_files_df = asyncio.run(self.get_manifest(gdf, product_id, date_range))
 
         # Filter files to those intersecting with Black Marble tiles
-        bm_files_df = bm_files_df[bm_files_df["name"].str.contains("|".join(gdf["TileID"]))]
+        bm_files_df = bm_files_df[
+            bm_files_df["name"].str.contains("|".join(gdf["TileID"]))
+        ]
 
         # Prepare arguments for parallel download
         names = bm_files_df["fileURL"].tolist()
-        args = [(name, skip_if_exists) for name in names]
+        args = [(name, skip_if_exists, on_progress) for name in names]
         return pqdm(
             args,
             self._download_file,
-            n_jobs=4,  # os.cpu_count(),
+            n_jobs=os.cpu_count(),
             argument_type="args",
             desc="Downloading...",
             exception_behaviour="immediate",

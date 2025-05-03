@@ -15,8 +15,8 @@ from pydantic import ConfigDict, validate_call
 from rasterio.transform import from_origin
 from rioxarray.merge import merge_arrays
 from shapely.geometry import mapping
-from tqdm.auto import tqdm
 
+from .tqdm_callback import tqdm_callback, ProgressCallback
 from .download import BlackMarbleDownloader
 from .types import Product
 
@@ -216,7 +216,9 @@ def h5_to_geotiff(
 
             variable_short = re.sub("_Num|_Std", "", variable)
             qf_name = f"{variable_short}_Quality"
-            qf = h5_data[data_field_key].get(qf_name, h5_data[data_field_key].get(variable))
+            qf = h5_data[data_field_key].get(
+                qf_name, h5_data[data_field_key].get(variable)
+            )
 
         # Extract data and attributes
         scale_factor = dataset.attrs.get("scale_factor", 1)
@@ -231,7 +233,9 @@ def h5_to_geotiff(
 
         # Get geospatial metadata (coordinates and attributes)
         height, width = data.shape
-        transform = from_origin(left, top, (right - left) / width, (top - bottom) / height)
+        transform = from_origin(
+            left, top, (right - left) / width, (top - bottom) / height
+        )
 
         with rasterio.open(
             output_path,
@@ -279,6 +283,7 @@ def bm_raster(
     check_all_tiles_exist: bool = True,
     output_directory: Optional[Path] = None,
     output_skip_if_exists: bool = True,
+    on_progress: ProgressCallback | None = None,
 ):
     """Create a stack of nighttime lights rasters by retrieiving from `NASA Black Marble <https://blackmarble.gsfc.nasa.gov>`_ data.
 
@@ -358,10 +363,17 @@ def bm_raster(
     # Download and construct Dataset
     with output_directory if output_directory else tempfile.TemporaryDirectory() as d:
         downloader = BlackMarbleDownloader(bearer, d)
-        pathnames = downloader.download(gdf, product_id, date_range, output_skip_if_exists)
+        pathnames = downloader.download(
+            gdf, product_id, date_range, output_skip_if_exists, on_progress=on_progress
+        )
 
         datasets = []
-        for date in tqdm(date_range, desc="COLLATING RESULTS | Processing..."):
+        for date in tqdm_callback(
+            date_range,
+            desc="COLLATING RESULTS | Processing...",
+            step_name="collate",
+            callback=on_progress,
+        ):
             filenames = _pivot_paths_by_date(pathnames).get(date)
 
             try:
@@ -378,7 +390,9 @@ def bm_raster(
                     for f in filenames
                 ]
                 ds = merge_arrays(da)
-                clipped_dataset = ds.rio.clip(gdf.geometry.apply(mapping), gdf.crs, drop=True)
+                clipped_dataset = ds.rio.clip(
+                    gdf.geometry.apply(mapping), gdf.crs, drop=True
+                )
                 clipped_dataset["time"] = pd.to_datetime(date)
 
                 datasets.append(clipped_dataset.squeeze())
