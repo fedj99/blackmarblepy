@@ -1,23 +1,22 @@
 import asyncio
 import datetime
 import json
+import os
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 from typing import ClassVar, List
-import os
 
 import backoff
 import geopandas
 import h5py
 import httpx
-import nest_asyncio
 import pandas as pd
 from httpx import HTTPError
 from pqdm.threads import pqdm
 from pydantic import BaseModel
 
-from .tqdm_callback import tqdm_callback, ProgressCallback
+from .tqdm_callback import ProgressCallback, tqdm_callback
 from .types import Product
 
 
@@ -33,6 +32,26 @@ def chunks(ls, n):
     """Yield successive n-sized chunks from list."""
     for i in range(0, len(ls), n):
         yield ls[i : i + n]
+
+
+def safe_apply_nest_asyncio():
+    try:
+        import uvloop
+
+        if isinstance(asyncio.get_event_loop(), uvloop.Loop):
+            # Skip applying nest_asyncio
+            return False
+
+        import nest_asyncio
+
+        nest_asyncio.apply()
+        return True
+    except ImportError:
+        # Apply nest_asyncio if uvloop is not installed
+        import nest_asyncio
+
+        nest_asyncio.apply()
+        return True
 
 
 @backoff.on_exception(
@@ -72,7 +91,7 @@ class BlackMarbleDownloader(BaseModel):
     URL: ClassVar[str] = "https://ladsweb.modaps.eosdis.nasa.gov"
 
     def __init__(self, bearer: str, directory: Path):
-        nest_asyncio.apply()
+        safe_apply_nest_asyncio()
         super().__init__(bearer=bearer, directory=directory)
 
     async def get_manifest(
@@ -119,7 +138,9 @@ class BlackMarbleDownloader(BaseModel):
                         "dateRanges": f"{min(chunk)}..{max(chunk)}",
                         "areaOfInterest": row["bbox"],
                     }
-                    tasks.append(asyncio.ensure_future(get_url(client, url, params)))
+                    tasks.append(
+                        asyncio.ensure_future(get_url(client, url, params))
+                    )
 
             responses = [
                 await f
@@ -229,7 +250,9 @@ class BlackMarbleDownloader(BaseModel):
         )
 
         # Fetch manifest data asynchronously
-        bm_files_df = asyncio.run(self.get_manifest(gdf, product_id, date_range))
+        bm_files_df = asyncio.run(
+            self.get_manifest(gdf, product_id, date_range)
+        )
 
         # Filter files to those intersecting with Black Marble tiles
         bm_files_df = bm_files_df[
