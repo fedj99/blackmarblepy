@@ -16,8 +16,8 @@ from rasterio.transform import from_origin
 from rioxarray.merge import merge_arrays
 from shapely.geometry import mapping
 
-from .tqdm_callback import tqdm_callback, ProgressCallback
 from .download import BlackMarbleDownloader
+from .tqdm_callback import ProgressCallback, tqdm_callback
 from .types import Product
 
 VARIABLE_DEFAULT = {

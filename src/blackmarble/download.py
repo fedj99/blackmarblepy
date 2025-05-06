@@ -52,6 +52,9 @@ def safe_apply_nest_asyncio():
 
         nest_asyncio.apply()
         return True
+    except RuntimeError:
+        # Not in loop, simply return (???)
+        return False
 
 
 @backoff.on_exception(
@@ -138,9 +141,7 @@ class BlackMarbleDownloader(BaseModel):
                         "dateRanges": f"{min(chunk)}..{max(chunk)}",
                         "areaOfInterest": row["bbox"],
                     }
-                    tasks.append(
-                        asyncio.ensure_future(get_url(client, url, params))
-                    )
+                    tasks.append(asyncio.ensure_future(get_url(client, url, params)))
 
             responses = [
                 await f
@@ -250,9 +251,7 @@ class BlackMarbleDownloader(BaseModel):
         )
 
         # Fetch manifest data asynchronously
-        bm_files_df = asyncio.run(
-            self.get_manifest(gdf, product_id, date_range)
-        )
+        bm_files_df = asyncio.run(self.get_manifest(gdf, product_id, date_range))
 
         # Filter files to those intersecting with Black Marble tiles
         bm_files_df = bm_files_df[

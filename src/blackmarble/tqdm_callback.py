@@ -1,4 +1,5 @@
 from typing import Callable, override
+
 from tqdm.asyncio import tqdm_asyncio
 
 ProgressCallback = Callable[[str, float], None]
