@@ -2,7 +2,7 @@ import datetime
 import re
 import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 import geopandas
 import h5py
@@ -25,6 +25,13 @@ VARIABLE_DEFAULT = {
     Product.VNP46A2: "Gap_Filled_DNB_BRDF-Corrected_NTL",
     Product.VNP46A3: "NearNadir_Composite_Snow_Free",
     Product.VNP46A4: "NearNadir_Composite_Snow_Free",
+}
+
+DROP_VALUES_BY_QF_DEFAULT = {
+    Product.VNP46A1: [2, 4, 8, 512, 1024, 2048],
+    Product.VNP46A2: [256],
+    Product.VNP46A3: [256],
+    Product.VNP46A4: [256],
 }
 
 
@@ -143,11 +150,21 @@ def tile_no_to_bounds(h_tile_no: int, v_tile_no: int):
     return west, south, east, north
 
 
+QF_MAPPING = {
+    "BrightnessTemperature_M12": "QF_VIIRS_M12",
+    "BrightnessTemperature_M13": "QF_VIIRS_M13",
+    "BrightnessTemperature_M14": "QF_VIIRS_M14",
+    "BrightnessTemperature_M15": "QF_VIIRS_M15",
+    "BrightnessTemperature_M16": "QF_VIIRS_M16",
+    "DNB_At_Sensor_Radiance_500m": "QF_DNB",
+}
+
+
 def h5_to_geotiff(
     f: Path,
     /,
-    variable: str = None,
-    drop_values_by_quality_flag: List[int] = [255],
+    variable: str | None = None,
+    drop_values_by_quality_flag: List[int] | None = None,
     output_directory: Path = None,
 ):
     """
@@ -180,45 +197,59 @@ def h5_to_geotiff(
     output_path = Path(output_directory, f.name).with_suffix(".tif")
     product_id = Product(f.stem.split(".")[0])
 
+    if drop_values_by_quality_flag is None:
+        drop_values_by_quality_flag = DROP_VALUES_BY_QF_DEFAULT[product_id]
+
     if variable is None:
-        variable = VARIABLE_DEFAULT.get(product_id)
+        variable = VARIABLE_DEFAULT[product_id]
 
     with h5py.File(f, "r") as h5_data:
         attrs = h5_data.attrs
-        data_field_key = "HDFEOS/GRIDS/VNP_Grid_DNB/Data Fields"
 
-        if product_id == Product.VNP46A2:
-            dataset = h5_data[data_field_key][variable]
+        # Default for VNP46A1/VNP46A2
+        # Other products use different DNB group name.
+        group_key = (
+            "HDFEOS/GRIDS/VNP_Grid_DNB"
+            if product_id in {Product.VNP46A1, Product.VNP46A2}
+            else "HDFEOS/GRIDS/VIIRS_Grid_DNB_2d"
+        )
+        group_attrs = h5_data[group_key].attrs
+
+        data_field_key = f"{group_key}/Data Fields"
+        data_fields = h5_data[data_field_key]
+        assert isinstance(data_fields, h5py.Group)
+        dataset = data_fields[variable]
+
+        if product_id == Product.VNP46A1:
+            # Get bounding coords
+            left, bottom, right, top = (
+                group_attrs.get("WestBoundingCoord"),
+                group_attrs.get("SouthBoundingCoord"),
+                group_attrs.get("EastBoundingCoord"),
+                group_attrs.get("NorthBoundingCoord"),
+            )
+
+            # Get quality flag (can be None for no mask)
+            qf_key = QF_MAPPING.get(variable)
+            qf = data_fields[qf_key] if qf_key else None
+
+        elif product_id == Product.VNP46A2:
             left, bottom, right, top = (
                 attrs.get("WestBoundingCoord"),
                 attrs.get("SouthBoundingCoord"),
                 attrs.get("EastBoundingCoord"),
                 attrs.get("NorthBoundingCoord"),
             )
-            qf = h5_data[data_field_key]["Mandatory_Quality_Flag"]
-        elif product_id == Product.VNP46A1:
-            dataset = h5_data[data_field_key][variable]
-            left, bottom, right, top = 90, 10, 100, 20
-            # left, bottom, right, top = tile_no_to_bounds(
-            #     attrs["HorizontalTileNumber"], attrs["VerticalTileNumber"]
-            # )  # TODO: Figure out how to set this properly
-            if match := re.match(r".*_(M\d\d)", variable):
-                qf_key = "QF_VIIRS_" + match.group(1)
-            else:
-                qf_key = "QF_DNB"
-            qf = h5_data[data_field_key][qf_key]
+            qf = data_fields["Mandatory_Quality_Flag"]
+
         else:
-            data_field_key = "HDFEOS/GRIDS/VIIRS_Grid_DNB_2d/Data Fields"
-            dataset = h5_data[data_field_key][variable]
-            lat = h5_data[data_field_key]["lat"]
-            lon = h5_data[data_field_key]["lon"]
+            lat = data_fields["lat"]
+            lon = data_fields["lon"]
             left, bottom, right, top = min(lon), min(lat), max(lon), max(lat)
 
             variable_short = re.sub("_Num|_Std", "", variable)
             qf_name = f"{variable_short}_Quality"
-            qf = h5_data[data_field_key].get(
-                qf_name, h5_data[data_field_key].get(variable)
-            )
+            qf = data_fields.get(qf_name, data_fields.get(variable))
 
         # Extract data and attributes
         scale_factor = dataset.attrs.get("scale_factor", 1)
@@ -226,10 +257,10 @@ def h5_to_geotiff(
         data = scale_factor * _remove_fill_value(dataset[:], variable) + offset
 
         # Quality flag
-        qf = qf[:]
-
-        for val in drop_values_by_quality_flag:
-            data = np.where(qf == val, np.nan, data)
+        if qf:
+            qf = qf[:]
+            for val in drop_values_by_quality_flag:
+                data = np.where(qf == val, np.nan, data)
 
         # Get geospatial metadata (coordinates and attributes)
         height, width = data.shape
@@ -276,12 +307,12 @@ def transform(da: xr.DataArray):
 def bm_raster(
     gdf: geopandas.GeoDataFrame,
     product_id: Product,
-    date_range: datetime.date | List[datetime.date],
+    date_range: datetime.date | list[datetime.date],
     bearer: str,
-    variable: Optional[str] = None,
-    drop_values_by_quality_flag: List[int] = [],
+    variable: str | None = None,
+    drop_values_by_quality_flag: int | list[int] | None = None,
     check_all_tiles_exist: bool = True,
-    output_directory: Optional[Path] = None,
+    output_directory: Path | None = None,
     output_skip_if_exists: bool = True,
     on_progress: ProgressCallback | None = None,
 ):
@@ -317,7 +348,20 @@ def bm_raster(
     drop_values_by_quality_flag: List[int], optional
         List of the quality flag values for which to drop data values. Each pixel has a quality flag value, where low quality values can be removed. Values are set to ``NA`` for each value in the list.
 
-        For ``VNP46A1`` and ``VNP46A2`` (daily data):
+        For ``VNP46A1`` (daily data, raw)
+
+        - ``0``: No flags set.
+        - ``1``: Substituted calibration data
+        - ``2``: Out of range
+        - ``4``: Saturation
+        - ``8``: Temperature not nominal
+        - ``16``: Stray light
+        - ``256``: Bowtie Deleted / Range bit
+        - ``512``: Missing EV
+        - ``1024``: Calibration failure
+        - ``2048``: Dead detector
+
+        For ``VNP46A2`` (daily data):
 
         - ``0``: High-quality, Persistent nighttime lights
         - ``1``: High-quality, Ephemeral nighttime Lights
@@ -345,20 +389,24 @@ def bm_raster(
     xarray.Dataset
         `xarray.Dataset` containing a stack of nighttime lights rasters
     """
+    if drop_values_by_quality_flag is None:
+        drop_values_by_quality_flag = DROP_VALUES_BY_QF_DEFAULT[product_id]
+    if variable is None:
+        variable = VARIABLE_DEFAULT[product_id]
+
     # Validate and fix arguments
     if not isinstance(drop_values_by_quality_flag, list):
         drop_values_by_quality_flag = [drop_values_by_quality_flag]
     if not isinstance(date_range, list):
         date_range = [date_range]
 
-    if variable is None:
-        variable = VARIABLE_DEFAULT.get(product_id)
-
     match product_id:
         case Product.VNP46A3:
             date_range = sorted(set([d.replace(day=1) for d in date_range]))
         case Product.VNP46A4:
             date_range = sorted(set([d.replace(day=1, month=1) for d in date_range]))
+        case _:
+            pass
 
     # Download and construct Dataset
     with output_directory if output_directory else tempfile.TemporaryDirectory() as d:
