@@ -310,7 +310,7 @@ def bm_raster(
     date_range: datetime.date | list[datetime.date],
     bearer: str,
     variable: str | None = None,
-    drop_values_by_quality_flag: int | list[int] | None = None,
+    drop_values_by_quality_flag: int | list[int] | None = [],
     check_all_tiles_exist: bool = True,
     output_directory: Path | None = None,
     output_skip_if_exists: bool = True,
