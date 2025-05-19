@@ -151,6 +151,8 @@ def tile_no_to_bounds(h_tile_no: int, v_tile_no: int):
 
 
 QF_MAPPING = {
+    "Radiance_M10": "QF_VIIRS_M10",
+    "Radiance_M11": "QF_VIIRS_M11",
     "BrightnessTemperature_M12": "QF_VIIRS_M12",
     "BrightnessTemperature_M13": "QF_VIIRS_M13",
     "BrightnessTemperature_M14": "QF_VIIRS_M14",
