@@ -12,19 +12,12 @@ import geopandas
 import h5py
 import httpx
 import pandas as pd
-from httpx import HTTPError, Timeout
+from httpx import HTTPError
 from pqdm.threads import pqdm
 from pydantic import BaseModel
 
 from .tqdm_callback import ProgressCallback, tqdm_callback
 from .types import Product
-
-# Sometimes fetching fails, and one just needs to retry.
-# Timeouts: Low connect, write and pool to make blackmarblepy retry as fast as possible
-# read timeout is higher as this is for downloading the chunks, which can take up to 20s.
-DEFAULT_TIMEOUT = Timeout(
-    connect=0.5, read=5.0, write=0.5, pool=0.5
-)  # Sometimes LADS API takes ~40s to respond
 
 
 def is_valid_hdf5(filename: str | Path):
@@ -76,7 +69,7 @@ async def get_url(client: httpx.AsyncClient, url, params):
     httpx.Response
         HTTP response
     """
-    return await client.get(url, params=params, timeout=DEFAULT_TIMEOUT)
+    return await client.get(url, params=params)
 
 
 def hdf_ok(file):
@@ -148,7 +141,7 @@ class BlackMarbleDownloader(BaseModel):
             lambda row: f"x{row.minx}y{row.miny},x{row.maxx}y{row.maxy}", axis=1
         )
 
-        async with httpx.AsyncClient(verify=False, timeout=DEFAULT_TIMEOUT) as client:
+        async with httpx.AsyncClient(verify=False) as client:
             tasks = []
             for chunk in chunks(date_range, 250):
                 for _, row in gdf.iterrows():
@@ -215,7 +208,6 @@ class BlackMarbleDownloader(BaseModel):
                     method="GET",
                     url=url,
                     headers={"Authorization": f"Bearer {self.bearer}"},
-                    timeout=DEFAULT_TIMEOUT,
                 )
                 with httpx.stream(**request_kwargs) as response:
                     if response.is_error:
