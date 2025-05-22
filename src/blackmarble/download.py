@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from .tqdm_callback import ProgressCallback, tqdm_callback
 from .types import Product
 
-DEFAULT_TIMEOUT = Timeout(timeout=30.0)
+DEFAULT_TIMEOUT = Timeout(timeout=60.0)  # Sometimes LADS API takes ~40s to respond
 
 
 def is_valid_hdf5(filename: str | Path):
