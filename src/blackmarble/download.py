@@ -19,7 +19,12 @@ from pydantic import BaseModel
 from .tqdm_callback import ProgressCallback, tqdm_callback
 from .types import Product
 
-DEFAULT_TIMEOUT = Timeout(timeout=60.0)  # Sometimes LADS API takes ~40s to respond
+# Sometimes fetching fails, and one just needs to retry.
+# Timeouts: Low connect, write and pool to make blackmarblepy retry as fast as possible
+# read timeout is higher as this is for downloading the chunks, which can take up to 20s.
+DEFAULT_TIMEOUT = Timeout(
+    connect=0.5, read=30.0, write=0.5, pool=0.5
+)  # Sometimes LADS API takes ~40s to respond
 
 
 def is_valid_hdf5(filename: str | Path):
@@ -74,6 +79,14 @@ async def get_url(client: httpx.AsyncClient, url, params):
     return await client.get(url, params=params, timeout=DEFAULT_TIMEOUT)
 
 
+def hdf_ok(file):
+    try:
+        with h5py.File(file):
+            return True
+    except:
+        return False
+
+
 @dataclass
 class BlackMarbleDownloader(BaseModel):
     """A downloader to retrieve `NASA Black Marble <https://blackmarble.gsfc.nasa.gov>`_ data.
@@ -98,6 +111,9 @@ class BlackMarbleDownloader(BaseModel):
     def __init__(self, bearer: str, directory: Path):
         safe_apply_nest_asyncio()
         super().__init__(bearer=bearer, directory=directory)
+
+        if self.bearer is None or self.bearer == "":
+            raise ValueError("API token is missing or empty!")
 
     async def get_manifest(
         self,
@@ -195,14 +211,37 @@ class BlackMarbleDownloader(BaseModel):
 
         if not skip_if_exists or not file_valid:
             with open(filename, "wb+") as f:
-                with httpx.stream(
-                    "GET",
-                    url,
+                request_kwargs = dict(
+                    method="GET",
+                    url=url,
                     headers={"Authorization": f"Bearer {self.bearer}"},
                     timeout=DEFAULT_TIMEOUT,
-                ) as response:
+                )
+                with httpx.stream(**request_kwargs) as response:
                     if response.is_error:
-                        raise HTTPError(str(response.content))
+                        raise httpx.HTTPStatusError(
+                            "Error while downloading Blackmarble data",
+                            request=httpx.Request(**request_kwargs),
+                            response=response,
+                        )
+                    # Do some sanity checks on response
+                    content_type = response.headers.get("content-type")
+                    content_length = response.headers.get("content-length")
+                    if (content_type and content_type.startswith("text/")) or (
+                        content_length and int(content_length) == 0
+                    ):
+                        raise ValueError(
+                            "Requested HDF5 data, got an empty response or HTML text. This is unwanted. "
+                            "Likely cause is one of:\n"
+                            "\n"
+                            "- Missing or expired Bearer token\n"
+                            "- Insufficient permissions (application not authorized)\n"
+                            "\n"
+                            "Please verify that you correctly set the authorization token and that it is valid, as "
+                            "well as checking that you granted appropriate application access on EarthData.\n"
+                            "\n"
+                            f"Current token: {(self.bearer[:8] + '...' + self.bearer[-8:]) if len(self.bearer) > 16 else ''}"
+                        )
                     total = int(response.headers["Content-Length"])
                     with tqdm_callback(
                         total=total,
@@ -216,6 +255,13 @@ class BlackMarbleDownloader(BaseModel):
                         for chunk in response.iter_raw():
                             f.write(chunk)
                             pbar.update(len(chunk))
+                    # Check that the file is valid HDF5
+                    if not hdf_ok(f):
+                        raise ValueError(
+                            "Downloaded data is not valid HDF5 data. Something went wrong during the download. You can "
+                            "try checking authorization (token set and valid) and approved applications on EarthData, "
+                            "as well as checking your internet connectivity."
+                        )
         return filename
 
     def download(
@@ -263,6 +309,7 @@ class BlackMarbleDownloader(BaseModel):
 
         # Prepare arguments for parallel download
         names = bm_files_df["fileURL"].tolist()
+        print(names)
         args = [(name, skip_if_exists, on_progress) for name in names]
         return pqdm(
             args,
