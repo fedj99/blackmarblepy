@@ -12,12 +12,14 @@ import geopandas
 import h5py
 import httpx
 import pandas as pd
-from httpx import HTTPError
+from httpx import HTTPError, Timeout
 from pqdm.threads import pqdm
 from pydantic import BaseModel
 
 from .tqdm_callback import ProgressCallback, tqdm_callback
 from .types import Product
+
+DEFAULT_TIMEOUT = Timeout(timeout=30.0)
 
 
 def is_valid_hdf5(filename: str | Path):
@@ -61,7 +63,7 @@ def safe_apply_nest_asyncio():
     backoff.expo,
     HTTPError,
 )
-async def get_url(client, url, params):
+async def get_url(client: httpx.AsyncClient, url, params):
     """
 
     Returns
@@ -69,7 +71,7 @@ async def get_url(client, url, params):
     httpx.Response
         HTTP response
     """
-    return await client.get(url, params=params)
+    return await client.get(url, params=params, timeout=DEFAULT_TIMEOUT)
 
 
 @dataclass
@@ -130,7 +132,7 @@ class BlackMarbleDownloader(BaseModel):
             lambda row: f"x{row.minx}y{row.miny},x{row.maxx}y{row.maxy}", axis=1
         )
 
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=False, timeout=DEFAULT_TIMEOUT) as client:
             tasks = []
             for chunk in chunks(date_range, 250):
                 for _, row in gdf.iterrows():
@@ -197,6 +199,7 @@ class BlackMarbleDownloader(BaseModel):
                     "GET",
                     url,
                     headers={"Authorization": f"Bearer {self.bearer}"},
+                    timeout=DEFAULT_TIMEOUT,
                 ) as response:
                     if response.is_error:
                         raise HTTPError(str(response.content))
