@@ -23,7 +23,7 @@ from .types import Product
 # Timeouts: Low connect, write and pool to make blackmarblepy retry as fast as possible
 # read timeout is higher as this is for downloading the chunks, which can take up to 20s.
 DEFAULT_TIMEOUT = Timeout(
-    connect=0.5, read=30.0, write=0.5, pool=0.5
+    connect=0.5, read=5.0, write=0.5, pool=0.5
 )  # Sometimes LADS API takes ~40s to respond
 
 
