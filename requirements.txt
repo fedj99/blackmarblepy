@@ -1,0 +1,16 @@
+backoff>=2,<3
+geopandas<2
+h5py
+httpx
+ipywidgets<9
+nest_asyncio<2
+numpy
+pandas>=2,<3
+pqdm
+pydantic>2,<3
+rasterio
+rasterstats
+rioxarray==0.17.0
+tqdm
+xarray
+aiohttp
